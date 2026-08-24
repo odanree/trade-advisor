@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trade-advisor"
+version = "0.1.0"
+description = "Advice-only, human-in-the-loop stock recommendation agent with shadow-mode paper-trade evaluation against an SPY counterfactual."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic",
+    "pydantic>=2",
+    "yfinance",
+    "httpx",
+    "typer",
+    "rich",
+    "alpaca-py",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "agent-governance",
+]
+
+[project.scripts]
+trade-advisor = "cli:app_entry"
+
+[tool.setuptools]
+packages = [
+    "advisor",
+    "advisor.data",
+    "advisor.data.providers",
+    "advisor.agents",
+    "shadow",
+    "evals",
+]
+py-modules = ["cli"]

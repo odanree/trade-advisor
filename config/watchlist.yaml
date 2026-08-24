@@ -1,0 +1,17 @@
+# Starter watchlist for the analyst pipeline. Kept to liquid, large-cap, high-coverage
+# names so fundamentals/technicals/sentiment data is dependable and options-free strategy
+# assumptions hold. Edit freely — the CLI reads this file at `advise` time.
+tickers:
+  - AAPL   # Apple — mega-cap hardware/services, high analyst coverage
+  - MSFT   # Microsoft — mega-cap software/cloud
+  - NVDA   # Nvidia — AI/semiconductor bellwether, high volatility
+  - GOOGL  # Alphabet — search/cloud/ads
+  - AMZN   # Amazon — e-commerce/AWS
+  - META   # Meta Platforms — social/ads, heavy capex cycle
+  - TSLA   # Tesla — EV/energy, high beta and sentiment sensitivity
+  - JPM    # JPMorgan Chase — money-center bank, rate-sensitive
+  - UNH    # UnitedHealth Group — managed care, regulatory sensitivity
+  - XOM    # Exxon Mobil — integrated energy, commodity-price sensitive
+
+# Same-dollar counterfactual every shadow position is benchmarked against.
+benchmark: SPY

@@ -1,0 +1,52 @@
+# --- Python standard ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# --- Project-specific ---
+# Local secrets
+.env
+
+# Append-only ledger + any local SQLite artifacts (never committed — this IS the track record,
+# but it lives on disk / in backups, not in git history)
+data/ledger.db
+data/*.db
+data/*.db-journal
+data/*.db-shm
+data/*.db-wal
