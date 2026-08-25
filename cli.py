@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from advisor.data.positions import parse_fidelity_csv
+from advisor.ledger import Ledger
 from advisor.run import run_pipeline
 from advisor.schema import Recommendation
 
@@ -66,9 +67,16 @@ def advise(
 @app.command()
 def settle() -> None:
     """Check open recommendations for invalidation/horizon triggers and close them out."""
-    outcomes = settle_recommendations()
+    ledger = Ledger()
+    open_count = len(ledger.open_recommendations())
+    outcomes = settle_recommendations(ledger=ledger)
     if not outcomes:
-        console.print("No recommendations to settle.")
+        if open_count == 0:
+            console.print("No open recommendations to check.")
+        else:
+            console.print(
+                f"Checked {open_count} open recommendation(s); none triggered (0 closed)."
+            )
         return
     for outcome in outcomes:
         console.print(

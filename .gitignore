@@ -43,6 +43,9 @@ htmlcov/
 # Local secrets
 .env
 
+# Scheduled-task run logs
+logs/
+
 # Append-only ledger + any local SQLite artifacts (never committed — this IS the track record,
 # but it lives on disk / in backups, not in git history)
 data/ledger.db
