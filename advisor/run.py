@@ -48,6 +48,27 @@ def _make_run_key(tickers: list[str]) -> str:
     return f"{date.today().isoformat()}:{digest}"
 
 
+def _open_rec_tickers(ledger: Ledger) -> set[str]:
+    """Tickers that currently have a standing (unsettled) recommendation.
+
+    Holds are excluded by ``Ledger.open_recommendations()`` itself -- a hold
+    carries no standing thesis, so it never blocks re-analysis.
+    """
+    return {rec.ticker for rec in ledger.open_recommendations()}
+
+
+def _tickers_to_skip(ledger: Ledger, day: date) -> set[str]:
+    """Tickers run_pipeline should not re-analyze on `day`.
+
+    Union of the same-day idempotency check (already advised today) and the
+    one-open-thesis-per-ticker invariant (already has an unsettled rec, from
+    any day). Pulled out as a pure function -- combining two ledger reads
+    into one set -- so it's testable against a tmp ledger without needing to
+    run the LLM + provider pipeline.
+    """
+    return ledger.tickers_with_rec_on(day) | _open_rec_tickers(ledger)
+
+
 def _render_table(recs: list[Recommendation]) -> None:
     table = Table(title="trade-advisor run results")
     table.add_column("Ticker")
@@ -87,6 +108,12 @@ def run_pipeline(
     fills in the tickers that didn't succeed last time rather than
     duplicating the ones that did. A single ticker's failure is logged and
     skipped rather than aborting the whole run.
+
+    One-open-thesis-per-ticker invariant: a ticker with an open (unsettled,
+    non-hold) recommendation is not re-advised until that recommendation
+    settles -- a buy/sell/trim rec stands for its full horizon (often ~45
+    days) without needing a fresh daily analysis. Holds carry no standing
+    thesis, so hold tickers are still re-analyzed every day.
     """
     ledger = ledger or Ledger()
     tickers, benchmark = _load_watchlist(watchlist_path)
@@ -101,6 +128,7 @@ def run_pipeline(
         logger.info("run %s already recorded; continuing, per-ticker guard will skip completed tickers", run_key)
 
     already_done = ledger.tickers_with_rec_on(date.today())
+    open_rec_tickers = _open_rec_tickers(ledger)
 
     market_provider = YFinanceProvider()
     news_provider = HeadlineProvider()
@@ -109,6 +137,9 @@ def run_pipeline(
     for i, ticker in enumerate(tickers, start=1):
         if ticker in already_done:
             console.print(f"[{i}/{len(tickers)}] {ticker} -> already done today, skipped")
+            continue
+        if ticker in open_rec_tickers:
+            console.print(f"[{i}/{len(tickers)}] {ticker} -> open rec active, skipped")
             continue
         try:
             reports = [
