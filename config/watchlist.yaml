@@ -12,6 +12,8 @@ tickers:
   - JPM    # JPMorgan Chase — money-center bank, rate-sensitive
   - UNH    # UnitedHealth Group — managed care, regulatory sensitivity
   - XOM    # Exxon Mobil — integrated energy, commodity-price sensitive
+  - AMD    # Advanced Micro Devices — semiconductors, NVDA competitor
+  - SHOP   # Shopify — e-commerce platform, growth/rate sensitivity
 
 # Same-dollar counterfactual every shadow position is benchmarked against.
 benchmark: SPY
