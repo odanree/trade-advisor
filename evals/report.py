@@ -3,36 +3,118 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 from rich.console import Console
 from rich.table import Table
 
+from advisor.data.providers.base import MarketDataProvider
+from advisor.data.providers.yfinance import YFinanceProvider
 from advisor.ledger import Ledger
+from advisor.schema import Recommendation
 
 from evals.metrics import Pair, calibration, hit_rate, max_drawdown, mean_alpha, median_alpha
+from shadow.benchmark import alpha as compute_alpha
 
 logger = logging.getLogger(__name__)
 
 
-def scorecard(ledger: Ledger | None = None) -> str:
+class OpenPositionRow:
+    """One row of the unrealized-alpha section: a live mark-to-market snapshot.
+
+    `alpha_pct` is None when a quote could not be fetched for this rec's
+    ticker (or for SPY) -- the row still renders, showing "n/a" for alpha,
+    rather than dropping the rec or breaking the scorecard.
+    """
+
+    def __init__(
+        self,
+        rec: Recommendation,
+        days_held: int,
+        days_to_horizon: int,
+        alpha_pct: float | None,
+    ) -> None:
+        self.rec = rec
+        self.days_held = days_held
+        self.days_to_horizon = days_to_horizon
+        self.alpha_pct = alpha_pct
+
+
+def _unrealized_rows(
+    open_recs: list[Recommendation],
+    provider: MarketDataProvider,
+    now: datetime,
+) -> list[OpenPositionRow]:
+    """Mark each open rec to market via `provider`, reusing shadow.benchmark's pure math.
+
+    A quote failure (for the rec's ticker or for SPY) is caught per-row so one
+    bad ticker never breaks the rest of the scorecard -- that row just gets
+    alpha_pct=None, rendered as "n/a" downstream.
+    """
+    rows: list[OpenPositionRow] = []
+    for rec in open_recs:
+        days_held = (now - rec.created_at).days
+        days_to_horizon = rec.horizon_days - days_held
+
+        alpha_pct: float | None = None
+        try:
+            quote = provider.get_quote(rec.ticker)
+            benchmark_quote = provider.get_quote("SPY")
+            alpha_pct = compute_alpha(rec, quote, benchmark_quote)
+        except Exception:
+            logger.exception(
+                "Failed to mark rec %s (%s) to market for the unrealized-alpha section; "
+                "showing n/a for this row.",
+                rec.id,
+                rec.ticker,
+            )
+
+        rows.append(
+            OpenPositionRow(
+                rec=rec,
+                days_held=days_held,
+                days_to_horizon=days_to_horizon,
+                alpha_pct=alpha_pct,
+            )
+        )
+    return rows
+
+
+def scorecard(ledger: Ledger | None = None, provider: MarketDataProvider | None = None) -> str:
     """Build a markdown scorecard over the closed recommendation ledger.
 
     Pretty-prints the same data to the terminal via rich as a side effect
     (best-effort — a rendering failure never blocks the markdown result), and
     returns the markdown string for programmatic use.
+
+    Also renders a PROVISIONAL "open positions (unrealized)" section that
+    marks every still-open recommendation to market via `provider` (default
+    YFinanceProvider, dependency-injected for tests) -- this is not part of
+    the settled track record used by the metrics above; it's a live-marked
+    preview so a quote failure for any one ticker never breaks the rest of
+    the scorecard.
     """
     ledger = ledger or Ledger()
+    provider = provider or YFinanceProvider()
     pairs: list[Pair] = ledger.closed()
     open_recs = ledger.open_recommendations()
     cal = calibration(pairs)
     last_ten = sorted(pairs, key=lambda pair: pair[1].closed_at, reverse=True)[:10]
+    now = datetime.now(UTC)
+    open_rows = _unrealized_rows(open_recs, provider, now)
 
-    markdown = _render_markdown(pairs, open_recs, cal, last_ten)
-    _render_rich(pairs, open_recs, cal, last_ten)
+    markdown = _render_markdown(pairs, open_recs, cal, last_ten, open_rows)
+    _render_rich(pairs, open_recs, cal, last_ten, open_rows)
     return markdown
 
 
-def _render_markdown(pairs: list[Pair], open_recs: list, cal: list[dict], last_ten: list[Pair]) -> str:
+def _render_markdown(
+    pairs: list[Pair],
+    open_recs: list,
+    cal: list[dict],
+    last_ten: list[Pair],
+    open_rows: list[OpenPositionRow],
+) -> str:
     lines: list[str] = ["# Trade Advisor Scorecard", "", "## Overall", ""]
     lines.append("| Metric | Value |")
     lines.append("| --- | --- |")
@@ -69,10 +151,31 @@ def _render_markdown(pairs: list[Pair], open_recs: list, cal: list[dict], last_t
         lines.append("_No closed recommendations yet._")
     lines.append("")
 
+    lines.append("## Open positions — unrealized, provisional (not part of the settled track record)")
+    lines.append("")
+    if open_rows:
+        lines.append("| Ticker | Direction | Confidence | Days held | Days to horizon | Unrealized alpha (pp) |")
+        lines.append("| --- | --- | --- | --- | --- | --- |")
+        for row in open_rows:
+            alpha_str = f"{row.alpha_pct:.2f}" if row.alpha_pct is not None else "n/a"
+            lines.append(
+                f"| {row.rec.ticker} | {row.rec.direction} | {row.rec.confidence:.2f} "
+                f"| {row.days_held} | {row.days_to_horizon} | {alpha_str} |"
+            )
+    else:
+        lines.append("_No open recommendations._")
+    lines.append("")
+
     return "\n".join(lines)
 
 
-def _render_rich(pairs: list[Pair], open_recs: list, cal: list[dict], last_ten: list[Pair]) -> None:
+def _render_rich(
+    pairs: list[Pair],
+    open_recs: list,
+    cal: list[dict],
+    last_ten: list[Pair],
+    open_rows: list[OpenPositionRow],
+) -> None:
     """Best-effort terminal pretty-print; a failure here never breaks scorecard()."""
     try:
         console = Console()
@@ -113,5 +216,27 @@ def _render_rich(pairs: list[Pair], open_recs: list, cal: list[dict], last_ten: 
                     outcome.close_reason,
                 )
             console.print(recent)
+
+        if open_rows:
+            unrealized = Table(
+                title="Open positions — unrealized, provisional (not part of the settled track record)"
+            )
+            unrealized.add_column("Ticker")
+            unrealized.add_column("Direction")
+            unrealized.add_column("Confidence")
+            unrealized.add_column("Days held")
+            unrealized.add_column("Days to horizon")
+            unrealized.add_column("Unrealized alpha (pp)")
+            for row in open_rows:
+                alpha_str = f"{row.alpha_pct:.2f}" if row.alpha_pct is not None else "n/a"
+                unrealized.add_row(
+                    row.rec.ticker,
+                    row.rec.direction,
+                    f"{row.rec.confidence:.2f}",
+                    str(row.days_held),
+                    str(row.days_to_horizon),
+                    alpha_str,
+                )
+            console.print(unrealized)
     except Exception:
         logger.exception("Failed to render rich scorecard tables; markdown output is unaffected.")

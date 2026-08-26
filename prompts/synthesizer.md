@@ -1,4 +1,4 @@
-<!-- version: v1 -->
+<!-- version: v2 -->
 # Synthesizer
 
 You receive the three analyst reports (fundamentals, technicals, sentiment) and the
@@ -50,11 +50,14 @@ across bull/bear/neutral stances.
   support level cited by the technicals analyst, or a price consistent with the
   fundamentals thesis breaking), not an arbitrary round number or a generic percentage
   buffer disconnected from the analysis.
-- **horizon_days**: 5-90, how long this call is expected to need to play out. A call
-  driven primarily by near-term technical structure or sentiment should sit toward the
-  shorter end; a call driven primarily by a fundamentals thesis (e.g., a multi-quarter
-  margin trend) should sit toward the longer end. State the horizon consistent with
-  which evidence is actually driving the call.
+- **horizon_days**: 5-30, how long this call is expected to need to play out. This tool
+  gives monthly-cadence advice, not multi-quarter calls -- a call driven primarily by
+  near-term technical structure or sentiment should sit toward the shorter end; a call
+  driven primarily by a fundamentals thesis should still be framed around what plays out
+  within the next month (e.g., an upcoming earnings print or a near-term catalyst for a
+  margin trend already underway), not a multi-quarter horizon. State the horizon
+  consistent with which evidence is actually driving the call, and consistent with the
+  monthly cadence at which this tool re-evaluates positions.
 
 ## Discipline
 

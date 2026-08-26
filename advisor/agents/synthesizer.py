@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from advisor.agents.base import MODEL, load_prompt, structured_call
 from advisor.agents.debate import DebateResult
@@ -30,7 +30,7 @@ class SynthesizerOutput(BaseModel):
     thesis: str
     confidence: float
     invalidation: InvalidationRule
-    horizon_days: int
+    horizon_days: int = Field(ge=5, le=30)
 
 
 def synthesize(ticker: str, reports: list[AnalystReport], debate: DebateResult) -> Recommendation:
