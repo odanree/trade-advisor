@@ -9,6 +9,9 @@ if (-not (Test-Path $logsDir)) {
 }
 
 $env:PYTHONUNBUFFERED = '1'
+# UTF-8 mode: model-written text (theses) can contain characters cp1252 can't
+# encode, which otherwise crashes console output on Windows pipes.
+$env:PYTHONUTF8 = '1'
 
 $dateStamp = Get-Date -Format 'yyyy-MM-dd'
 $logFile = Join-Path $logsDir "settle-$dateStamp.log"

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from advisor.agents.base import StructuredCallError, _strict_schema, structured_call
 from advisor.agents.debate import DebateResult
@@ -231,3 +231,50 @@ def test_strict_schema_tightens_every_object_node_including_defs() -> None:
 
     # $ref/$defs structure is preserved, not inlined.
     assert schema["properties"]["address"]["$ref"] == "#/$defs/_Address"
+
+
+class _RangedSub(BaseModel):
+    confidence: float = Field(ge=0, le=1)
+
+
+class _RangedModel(BaseModel):
+    horizon_days: int = Field(ge=1, le=10)
+    score: float = Field(ge=0, le=1)
+    sub: _RangedSub
+
+
+def test_strict_schema_strips_numeric_range_keywords() -> None:
+    """Anthropic's strict tool mode 400s on 'minimum'/'maximum' (and the
+    exclusive/multipleOf variants) for integer/number schema nodes. These
+    must be stripped from the schema sent to the API -- top level and
+    inside nested submodels under $defs -- while range enforcement still
+    lives on the pydantic model itself (Field(ge=..., le=...)), and
+    additionalProperties/required tightening is unaffected.
+    """
+    schema = _strict_schema(_RangedModel)
+
+    _RANGE_KEYS = {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
+
+    def _assert_no_range_keys(node: object) -> None:
+        if isinstance(node, dict):
+            assert not (_RANGE_KEYS & node.keys()), f"range keys leaked into schema node: {node}"
+            for value in node.values():
+                _assert_no_range_keys(value)
+        elif isinstance(node, list):
+            for item in node:
+                _assert_no_range_keys(item)
+
+    _assert_no_range_keys(schema)
+
+    # additionalProperties/required tightening still applies at both levels.
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {"horizon_days", "score", "sub"}
+
+    sub_def = schema["$defs"]["_RangedSub"]
+    assert sub_def["additionalProperties"] is False
+    assert set(sub_def["required"]) == {"confidence"}
+
+    # The pydantic model itself must still enforce the range so an
+    # out-of-range value fails validation and triggers the self-repair retry.
+    with pytest.raises(Exception):
+        _RangedModel(horizon_days=99, score=0.5, sub=_RangedSub(confidence=0.5))

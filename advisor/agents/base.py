@@ -75,12 +75,34 @@ def _strict_schema(model: type[BaseModel]) -> dict:
     `anyOf`/`oneOf`/`allOf` branches) and tightens every object node in
     place, without inlining `$ref`/`$defs` -- the schema keeps referencing
     submodels by name, just with each definition tightened.
+
+    It also strips numeric range keywords ("minimum", "maximum",
+    "exclusiveMinimum", "exclusiveMaximum", "multipleOf") from every
+    "integer"/"number" node, since Anthropic's strict tool mode rejects
+    those keywords outright (400: "For 'integer' type, properties maximum,
+    minimum are not supported"). Range enforcement isn't lost -- it still
+    lives on the pydantic model (e.g. Field(ge=..., le=...)), so an
+    out-of-range value from the model fails model_validate() and falls
+    through to structured_call's existing self-repair retry with the
+    validation error fed back to the model.
     """
     schema = model.model_json_schema()
+
+    _NUMERIC_RANGE_KEYS = (
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
+    )
 
     def _tighten(node: object) -> None:
         if not isinstance(node, dict):
             return
+
+        if node.get("type") in ("integer", "number"):
+            for key in _NUMERIC_RANGE_KEYS:
+                node.pop(key, None)
 
         properties = node.get("properties")
         if isinstance(properties, dict):
