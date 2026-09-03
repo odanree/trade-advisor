@@ -55,3 +55,44 @@ def test_tickers_to_skip_combines_same_day_and_open_rec(tmp_ledger: Ledger, make
     assert "MSFT" not in skip  # settled -> not skipped
     assert "GOOGL" not in skip  # hold from yesterday -> not skipped
     assert "NVDA" in skip  # rec created today -> skipped
+
+
+def test_tickers_to_skip_applies_invalidation_cooldown(tmp_ledger: Ledger, make_rec) -> None:
+    """Hysteresis against whipsaw: GOOGL was stopped out via invalidation on
+    2026-08-27 and re-advised as a fresh buy the next day. A ticker
+    invalidated within the last COOLDOWN_DAYS calendar days should stay
+    skipped even after its open rec has settled; once cooldown lapses, or
+    for a horizon-expiry close (a thesis that ran its course), it should
+    not be skipped."""
+    today = date(2026, 8, 28)
+
+    def _close(ticker: str, rec_id: str, days_ago: int, close_reason: str) -> None:
+        rec = make_rec(
+            id=rec_id,
+            ticker=ticker,
+            direction="buy",
+            created_at=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+        tmp_ledger.append_recommendation(rec)
+        tmp_ledger.append_outcome(
+            Outcome(
+                rec_id=rec.id,
+                closed_at=datetime.combine(today - timedelta(days=days_ago), datetime.min.time(), tzinfo=UTC),
+                close_reason=close_reason,
+                exit_price=90.0,
+                benchmark_exit_price=500.0,
+                rec_return_pct=-10.0,
+                benchmark_return_pct=1.0,
+                alpha_pct=-11.0,
+            )
+        )
+
+    _close("GOOGL", "goog-inv", days_ago=2, close_reason="invalidation")
+    _close("TSLA", "tsla-inv", days_ago=6, close_reason="invalidation")
+    _close("AMD", "amd-horizon", days_ago=1, close_reason="horizon")
+
+    skip = _tickers_to_skip(tmp_ledger, today)
+
+    assert "GOOGL" in skip  # invalidated 2 days ago -> still cooling down
+    assert "TSLA" not in skip  # invalidated 6 days ago -> cooldown lapsed
+    assert "AMD" not in skip  # horizon close doesn't trigger cooldown

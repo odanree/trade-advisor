@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from advisor.ledger import Ledger
 from advisor.schema import Outcome
@@ -85,3 +85,56 @@ def test_get_recommendation_roundtrip_preserves_fields(tmp_ledger: Ledger, make_
 
 def test_get_recommendation_missing_returns_none(tmp_ledger: Ledger) -> None:
     assert tmp_ledger.get_recommendation("does-not-exist") is None
+
+
+def test_tickers_invalidated_since_filters_by_reason_and_date(tmp_ledger: Ledger, make_rec) -> None:
+    since = datetime(2026, 2, 5, tzinfo=UTC)
+
+    recent_invalidation = make_rec(id="inv-recent", ticker="GOOGL")
+    old_invalidation = make_rec(id="inv-old", ticker="TSLA")
+    recent_horizon = make_rec(id="horizon-recent", ticker="AMD")
+
+    tmp_ledger.append_recommendation(recent_invalidation)
+    tmp_ledger.append_recommendation(old_invalidation)
+    tmp_ledger.append_recommendation(recent_horizon)
+
+    tmp_ledger.append_outcome(
+        Outcome(
+            rec_id=recent_invalidation.id,
+            closed_at=since + timedelta(days=1),
+            close_reason="invalidation",
+            exit_price=90.0,
+            benchmark_exit_price=500.0,
+            rec_return_pct=-10.0,
+            benchmark_return_pct=1.0,
+            alpha_pct=-11.0,
+        )
+    )
+    tmp_ledger.append_outcome(
+        Outcome(
+            rec_id=old_invalidation.id,
+            closed_at=since - timedelta(days=10),
+            close_reason="invalidation",
+            exit_price=90.0,
+            benchmark_exit_price=500.0,
+            rec_return_pct=-10.0,
+            benchmark_return_pct=1.0,
+            alpha_pct=-11.0,
+        )
+    )
+    tmp_ledger.append_outcome(
+        Outcome(
+            rec_id=recent_horizon.id,
+            closed_at=since + timedelta(days=1),
+            close_reason="horizon",
+            exit_price=110.0,
+            benchmark_exit_price=500.0,
+            rec_return_pct=10.0,
+            benchmark_return_pct=1.0,
+            alpha_pct=9.0,
+        )
+    )
+
+    result = tmp_ledger.tickers_invalidated_since(since)
+
+    assert result == {"GOOGL"}  # recent invalidation only

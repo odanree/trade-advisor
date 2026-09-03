@@ -26,9 +26,15 @@ class SynthesizerOutput(BaseModel):
     """Judgment fields the LLM is responsible for; the rest is stamped in code."""
 
     direction: str
-    size_pct: float
+    size_pct: float = Field(ge=0, le=5)
     thesis: str
-    confidence: float
+    # A literal 0 or 1 confidence is not a calibrated estimate -- it's the
+    # model refusing to commit to a number at all. _strict_schema (base.py)
+    # strips numeric range keywords from the tool schema Anthropic sees
+    # (strict tool mode rejects them), so this bound only fires in pydantic
+    # validation + structured_call's self-repair retry, feeding the
+    # violation back to the model rather than silently degenerating.
+    confidence: float = Field(ge=0.05, le=0.95)
     invalidation: InvalidationRule
     horizon_days: int = Field(ge=5, le=30)
 

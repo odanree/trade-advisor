@@ -41,7 +41,9 @@ across bull/bear/neutral stances.
   well below 0.5; a recommendation where fundamentals, technicals, and sentiment
   independently align and the debate found no credible counter-case can reasonably score
   above 0.8. Mixed or thin evidence should pull confidence down, not just the direction
-  toward hold.
+  toward hold. Confidence must be strictly between 0.05 and 0.95 -- never 0 or 1; even
+  your strongest or weakest calls carry irreducible uncertainty, so a literal 0 or 1 is
+  never a calibrated estimate.
 - **invalidation**: a falsifiable rule stated as either `price_below` or `price_above`
   plus a specific `level` (a number). This is the condition under which this
   recommendation should be considered wrong and revisited — not a stop-loss for

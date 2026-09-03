@@ -79,9 +79,11 @@ def settle() -> None:
             )
         return
     for outcome in outcomes:
+        rec = ledger.get_recommendation(outcome.rec_id)
+        label = f"{rec.ticker} {rec.direction}" if rec is not None else outcome.rec_id
         console.print(
-            f"{outcome.rec_id} closed ({outcome.close_reason}): "
-            f"alpha={outcome.alpha_pct:.2f}pp exit={outcome.exit_price}"
+            f"{label} closed ({outcome.close_reason}): "
+            f"alpha {outcome.alpha_pct:.2f}pp, exit ${outcome.exit_price:.2f}"
         )
 
 

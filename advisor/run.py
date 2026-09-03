@@ -12,7 +12,7 @@ already succeeded.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 _DEFAULT_BENCHMARK = "SPY"
+
+# Hysteresis against whipsaw: a ticker stopped out via invalidation sits out
+# for this many calendar days before it's eligible to be re-advised, even
+# though invalidation closes its open rec and would otherwise clear the
+# one-open-thesis-per-ticker guard immediately. Horizon-expiry closes don't
+# start a cooldown -- see _cooldown_tickers.
+COOLDOWN_DAYS = 5
 
 
 def _load_watchlist(path: Path) -> tuple[list[str], str]:
@@ -57,16 +64,34 @@ def _open_rec_tickers(ledger: Ledger) -> set[str]:
     return {rec.ticker for rec in ledger.open_recommendations()}
 
 
+def _cooldown_tickers(ledger: Ledger, day: date) -> set[str]:
+    """Tickers still cooling down after an invalidation close, as of `day`.
+
+    GOOGL was stopped out via invalidation on 2026-08-27 and re-advised as a
+    fresh buy the very next day -- getting stopped out and immediately
+    re-entered is the whipsaw this guards against. A ticker whose most
+    recent invalidation close falls within the last COOLDOWN_DAYS calendar
+    days (inclusive) is skipped even though it has no open rec. Horizon-
+    expiry closes never land here -- Ledger.tickers_invalidated_since()
+    filters to close_reason == "invalidation" only, so a thesis that simply
+    ran its course is fine to re-evaluate immediately.
+    """
+    since = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc) - timedelta(days=COOLDOWN_DAYS)
+    return ledger.tickers_invalidated_since(since)
+
+
 def _tickers_to_skip(ledger: Ledger, day: date) -> set[str]:
     """Tickers run_pipeline should not re-analyze on `day`.
 
-    Union of the same-day idempotency check (already advised today) and the
-    one-open-thesis-per-ticker invariant (already has an unsettled rec, from
-    any day). Pulled out as a pure function -- combining two ledger reads
-    into one set -- so it's testable against a tmp ledger without needing to
-    run the LLM + provider pipeline.
+    Union of three checks: the same-day idempotency check (already advised
+    today), the one-open-thesis-per-ticker invariant (already has an
+    unsettled rec, from any day), and the invalidation cooldown (stopped
+    out within the last COOLDOWN_DAYS calendar days -- see
+    _cooldown_tickers). Pulled out as a pure function -- combining three
+    ledger reads into one set -- so it's testable against a tmp ledger
+    without needing to run the LLM + provider pipeline.
     """
-    return ledger.tickers_with_rec_on(day) | _open_rec_tickers(ledger)
+    return ledger.tickers_with_rec_on(day) | _open_rec_tickers(ledger) | _cooldown_tickers(ledger, day)
 
 
 def _render_table(recs: list[Recommendation]) -> None:
@@ -114,6 +139,14 @@ def run_pipeline(
     settles -- a buy/sell/trim rec stands for its full horizon (often ~45
     days) without needing a fresh daily analysis. Holds carry no standing
     thesis, so hold tickers are still re-analyzed every day.
+
+    Invalidation cooldown: a ticker whose most recent close was an
+    invalidation (stopped out) within the last COOLDOWN_DAYS calendar days
+    is also skipped, even once its open rec has settled and the invariant
+    above would otherwise clear it -- this is hysteresis against whipsaw,
+    so a ticker isn't stopped out and immediately re-advised as a fresh buy
+    on the next run. Horizon-expiry closes don't trigger cooldown: a thesis
+    that simply ran its course is fine to re-evaluate right away.
     """
     ledger = ledger or Ledger()
     tickers, benchmark = _load_watchlist(watchlist_path)
@@ -129,6 +162,7 @@ def run_pipeline(
 
     already_done = ledger.tickers_with_rec_on(date.today())
     open_rec_tickers = _open_rec_tickers(ledger)
+    cooldown_tickers = _cooldown_tickers(ledger, date.today())
 
     market_provider = YFinanceProvider()
     news_provider = HeadlineProvider()
@@ -140,6 +174,9 @@ def run_pipeline(
             continue
         if ticker in open_rec_tickers:
             console.print(f"[{i}/{len(tickers)}] {ticker} -> open rec active, skipped")
+            continue
+        if ticker in cooldown_tickers:
+            console.print(f"[{i}/{len(tickers)}] {ticker} -> cooling down after invalidation, skipped")
             continue
         try:
             reports = [

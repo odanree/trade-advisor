@@ -42,3 +42,27 @@ def test_horizon_days_at_lower_bound_passes() -> None:
 def test_horizon_days_below_lower_bound_raises() -> None:
     with pytest.raises(ValidationError):
         SynthesizerOutput(**_payload(horizon_days=4))
+
+
+def test_confidence_zero_raises() -> None:
+    """A literal 0 confidence is not a calibrated estimate -- AMD produced a
+    hold rec with confidence 0.00 on 2026-08-27; this is the guard against
+    that degenerate output."""
+    with pytest.raises(ValidationError):
+        SynthesizerOutput(**_payload(confidence=0.0))
+
+
+def test_confidence_one_raises() -> None:
+    with pytest.raises(ValidationError):
+        SynthesizerOutput(**_payload(confidence=1.0))
+
+
+@pytest.mark.parametrize("confidence", [0.05, 0.95, 0.5])
+def test_confidence_within_bounds_passes(confidence: float) -> None:
+    output = SynthesizerOutput(**_payload(confidence=confidence))
+    assert output.confidence == confidence
+
+
+def test_size_pct_above_cap_raises() -> None:
+    with pytest.raises(ValidationError):
+        SynthesizerOutput(**_payload(size_pct=6))

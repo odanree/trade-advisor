@@ -131,6 +131,30 @@ class Ledger:
         self._conn.commit()
         logger.debug("recorded run %s", run_key)
 
+    def tickers_invalidated_since(self, since: datetime) -> set[str]:
+        """Tickers whose Outcome closed by invalidation on/after `since`.
+
+        Outcomes don't carry a ticker column, so this joins to
+        `recommendations` on `rec_id` to recover it. Filters to
+        `close_reason == "invalidation"` in Python (via the stored Outcome
+        json) rather than in SQL, matching the parse-then-filter style
+        already used by `closed()` -- no dependency on SQLite's JSON1
+        extension. Used by run.py's invalidation-cooldown guard; horizon
+        closes are deliberately excluded here.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT r.ticker, o.json FROM outcomes o
+            JOIN recommendations r ON r.id = o.rec_id
+            """
+        ).fetchall()
+        result: set[str] = set()
+        for ticker, outcome_json in rows:
+            outcome = Outcome.model_validate_json(outcome_json)
+            if outcome.close_reason == "invalidation" and outcome.closed_at >= since:
+                result.add(ticker)
+        return result
+
     def get_recommendation(self, rec_id: str) -> Recommendation | None:
         """Fetch a single recommendation by id, or None if it doesn't exist."""
         row = self._conn.execute(
